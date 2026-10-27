@@ -10,7 +10,7 @@ import {
   PanelLeftOpen,
 } from "lucide-react";
 import researchModeGifUrl from "@/assets/research-mode/shigure.gif";
-import { useSessionDebug } from "@/hooks/useSessionDebug.js";
+import { useLatestDecodeTps } from "@/store/latestDecodeStore.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { UpdateStatusButton } from "@/UpdateStatusButton.js";
 import { DesktopTopOverlayActionButton } from "@/DesktopTopOverlayActionButton.js";
@@ -54,7 +54,6 @@ interface DesktopTopOverlayProps {
 }
 
 export function DesktopTopOverlay({
-  workspaceAbsPath,
   activeTaskId,
   isMacDesktop,
   isMacFullscreen,
@@ -124,20 +123,10 @@ export function DesktopTopOverlay({
     scheduleSwap();
     return () => window.clearTimeout(timer);
   }, [bugHuntingEnabled]);
-  // 仅在 Bug Hunting Mode 开启时轮询调试快照，避免给普通会话多加一条常驻 IPC。
-  const { rounds: debugRounds } = useSessionDebug({
-    workspacePath: workspaceAbsPath,
-    taskId: activeTaskId ?? null,
-    enabled: bugHuntingEnabled,
-  });
-  let latestDecodeTps: number | null = null;
-  for (let index = debugRounds.length - 1; index >= 0; index -= 1) {
-    const tps = debugRounds[index]?.tokensPerSecond;
-    if (typeof tps === "number" && Number.isFinite(tps)) {
-      latestDecodeTps = tps;
-      break;
-    }
-  }
+  // Bug 修复：解码速率改取会话内唯一真源（computeGenerationSpeed，以 runtime 实测 firstTokenAt
+  // 计窗），不再用 session-debug 的 tokensPerSecond——后者在响应被缓冲为末尾一次性到达时解码窗口
+  // 塌缩到几毫秒，会把速率放大成两万+ 的假值（曾显示 "21360 tok/s decode"）。
+  const latestDecodeTps = useLatestDecodeTps(activeTaskId ?? null);
   const SidebarToggleIcon = isSidebarVisible ? PanelLeftClose : PanelLeftOpen;
   const isLinuxDesktop = Boolean(isDesktop && !isMacDesktop && !isWindowsDesktop);
   const usesCustomCaptionArea = isWindowsDesktop || isLinuxDesktop;

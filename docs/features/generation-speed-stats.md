@@ -195,3 +195,30 @@ Proposed format (live, while streaming):
 2. Granularity: per-reply (recommended) vs per-turn rollup.
 3. Reasoning-token handling in the decode numerator (§8).
 4. Always-on vs behind a settings toggle in v1.
+
+## 13. Top-bar "Bug Hunting Mode" decode readout
+
+The desktop top overlay (`DesktopTopOverlay`) shows the latest reply's decode rate next to
+the decorative overlay when "Bug Hunting Mode" is on. This readout **must share the single
+source of truth** (`computeGenerationSpeed`, §4) with the in-conversation line, so the two
+numbers always agree.
+
+- **Source:** `latestFinalDecodeTokPerSec(rows)` scans the active session's row window for the
+  most recent completed `assistantText` row with `generationStats` and returns its
+  `decodeTokPerSec` (or `null` when unreliable → the overlay shows `--`).
+- **Transport:** the active `SessionPane` (which owns that session's projection snapshot)
+  publishes the value into `useLatestDecodeStore`, keyed by `sessionId`; the overlay, a sibling
+  outside the conversation provider, reads it by `activeTaskId`. Single writer, single reader,
+  cleared on session change/unmount.
+
+### Bug fixed (2026-10-27): overlay showed `21360 tok/s decode`
+
+The overlay previously read `round.tokensPerSecond` from `session-debug`, computed as
+`outputTokens / (durationMs − timeToFirstContentMs)`. For **buffered / non-incremental**
+responses the first-content milestone lands right at the request's end, so that decode window
+collapses to a few milliseconds while `outputTokens` still counts the whole reply — inflating
+the rate into the tens of thousands. `calculateOutputTps` only rejected windows `≤ 0`, so the
+garbage value passed through. Fixed by sourcing the overlay from `computeGenerationSpeed`
+(which measures the window from the runtime-observed `firstTokenAt`) instead. The
+`session-debug` metric itself is unchanged; the Developer Tools pane still surfaces it as a raw
+diagnostic.
